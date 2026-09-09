@@ -150,7 +150,7 @@ def start_test(test_id: int):
         f"{WORKER_URL}/execute-test",
         json={"execute_id": execute_id, "hw_ids": hw_ids},
         timeout=5,
-    }
+    )
     invalidate("test_run:recent_list")  # invalidate the cached list of test runs
 
     return {
