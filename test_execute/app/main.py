@@ -1,3 +1,5 @@
+import httpx
+import os
 import uuid
 from typing import Optional
 
@@ -6,11 +8,11 @@ from pydantic import BaseModel
 
 from app.db.connection import get_connection, get_db_transaction
 from app.db.redis_client import get_cached, set_cached, set_list_cached, invalidate
-from app.services.hw_lock import acquire_hardware, HardwareUnavailableError
-from app.mock_hw.simulator import run_test_in_background
+from app.services.hw_lock import acquire_hardware, HardwareUnavailableError, release_hardware
 from psycopg2.extras import Json
 
 app = FastAPI(title="Test Case Management System (MVP)")
+WORKER_URL = os.environ.get("WORKER_URL", "http://localhost:9000")
 
 
 # ---------- Pydantic request/response models ----------
@@ -23,6 +25,12 @@ class TestCaseIn(BaseModel):
     expected_result: Optional[str] = None
     priority: Optional[int] = None
 
+class TestRunComplete(BaseModel):
+    execute_id: str
+    hw_ids: list[str]
+    status: str
+    result: Optional[str] = None
+    msg: Optional[str] = None
 
 # ---------- Test case CRUD ----------
 
@@ -138,7 +146,11 @@ def start_test(test_id: int):
             (execute_id, test_id),
         )
 
-    run_test_in_background(execute_id, hw_ids)
+    httpx.post(
+        f"{WORKER_URL}/execute-test",
+        json={"execute_id": execute_id, "hw_ids": hw_ids},
+        timeout=5,
+    }
     invalidate("test_run:recent_list")  # invalidate the cached list of test runs
 
     return {
@@ -193,3 +205,21 @@ def list_test_runs():
             rows = cur.fetchall()
     set_list_cached(cache_key, rows)
     return rows
+
+# ---------- Internal callback endpoint for test execution worker ----------
+
+@app.post("/internal/test-run-complete")
+def test_run_complete(body: TestRunComplete):
+    with get_db_transaction() as (conn, cur):
+        cur.execute(
+            """
+            UPDATE test_run
+            SET status = %s, result = %s, msg = %s, finished_at = NOW()
+            WHERE execute_id = %s
+            """,
+            (body.status, body.result, body.msg, body.execute_id),
+        )
+    invalidate(f"test_run:{body.execute_id}")
+    invalidate("test_run:recent_list")
+    release_hardware(body.hw_ids)
+    return {"acknowledged": True}
