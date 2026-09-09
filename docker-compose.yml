@@ -13,7 +13,7 @@ services:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
-      - ./backend/app/db/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql
+      - ./test_execute/app/db/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U tcms_user -d tcms_db"]
       interval: 5s
@@ -27,10 +27,10 @@ services:
     ports:
       - "6379:6379"
 
-  backend:
+  test_execute:
     build:
-      context: ./backend
-    container_name: tcms_backend
+      context: ./test_execute
+    container_name: tcms_test_execute
     restart: unless-stopped
     depends_on:
       postgres:
@@ -44,14 +44,14 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - ./backend:/app
+      - ./test_execute:/app
   worker:
     build:
       context: ./worker
     container_name: tcms_worker
     restart: unless-stopped
     environment:
-      BACKEND_URL: http://backend:8000
+      BACKEND_URL: http://test_execute:8000
     ports:
       - "9000:9000"
     volumes:

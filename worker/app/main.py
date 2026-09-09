@@ -15,8 +15,8 @@ from pydantic import BaseModel
 
 app = FastAPI(title="Test Execution Worker")
 
-# The main backend's internal callback URL, e.g. http://backend:8000
-BACKEND_URL = os.environ.get("BACKEND_URL", "http://localhost:8000")
+# The main test_execute's internal callback URL, e.g. http://test_execute:8000
+TEST_EXECUTE_URL = os.environ.get("TEST_EXECUTE_URL", "http://localhost:8000")
 
 MIN_DURATION_SEC = 3
 MAX_DURATION_SEC = 15
@@ -48,10 +48,10 @@ def _run_and_report(execute_id: str, hw_ids: list[str]) -> None:
     else:
         status, result, msg = "COMPLETE", "PASS", "Test completed successfully."
 
-    # Call back to the main backend instead of touching the DB directly —
+    # Call back to the main test_execute instead of touching the DB directly —
     # the worker shouldn't need direct DB access at all now.
     httpx.post(
-        f"{BACKEND_URL}/internal/test-run-complete",
+        f"{TEST_EXECUTE_URL}/internal/test-run-complete",
         json={
             "execute_id": execute_id,
             "hw_ids": hw_ids,
