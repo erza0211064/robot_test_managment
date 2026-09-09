@@ -5,6 +5,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
 from app.db.connection import get_connection, get_db_transaction
+from app.db.redis_client import get_cached, set_cached, set_list_cached, invalidate
 from app.services.hw_lock import acquire_hardware, HardwareUnavailableError
 from app.mock_hw.simulator import run_test_in_background
 from psycopg2.extras import Json
@@ -138,6 +139,7 @@ def start_test(test_id: int):
         )
 
     run_test_in_background(execute_id, hw_ids)
+    invalidate("test_run:recent_list")  # invalidate the cached list of test runs
 
     return {
         "testID": test_id,
@@ -150,6 +152,12 @@ def start_test(test_id: int):
 
 @app.get("/view-test-result/{execute_id}")
 def view_test_result(execute_id: str):
+    cache_key = f"test_run:{execute_id}"
+
+    cached = get_cached(cache_key)
+    if cached is not None:
+        return cached  # cache hit
+
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -164,15 +172,24 @@ def view_test_result(execute_id: str):
             row = cur.fetchone()
             if not row:
                 raise HTTPException(status_code=404, detail="execute_id not found")
-            return row
+
+    set_cached(cache_key, row, row["status"])  # cache miss, store result for next time
+    return row
 
 
 @app.get("/list-test-run")
 def list_test_runs():
+    cache_key = "test_run:recent_list"
+    cached = get_cached(cache_key)
+    if cached is not None:
+        return cached
+    
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 "SELECT execute_id, test_id, status, started_at, finished_at "
                 "FROM test_run ORDER BY started_at DESC"
             )
-            return cur.fetchall()
+            rows = cur.fetchall()
+    set_list_cached(cache_key, rows)
+    return rows

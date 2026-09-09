@@ -17,6 +17,7 @@ import threading
 import time
 
 from app.db.connection import get_db_transaction
+from app.db.redis_client import invalidate
 from app.services.hw_lock import release_hardware
 
 MIN_DURATION_SEC = 3
@@ -50,4 +51,7 @@ def _execute(execute_id: str, hw_ids: list[str]) -> None:
             (status, result, msg, execute_id),
         )
 
+    invalidate(f"test_run:{execute_id}")
+    invalidate("test_run:recent_list")
     release_hardware(hw_ids)
+    
